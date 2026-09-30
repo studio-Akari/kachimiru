@@ -3,40 +3,37 @@
 #   RAKUTEN_APP_ID / RAKUTEN_ACCESS_KEY / RAKUTEN_AFFILIATE_ID
 import json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
 
-# アプリの「買える物」の金額帯（game.ts の GOODS と合わせる）、楽天で探す言葉、
-# 商品名に必ず入っていてほしい言葉（どれか1つ）、入っていたら外す言葉
+# アプリの「買える物」の金額帯（game.ts の GOODS と合わせる）。300円未満は楽天の商品を出さない。
+# まず楽天市場の総合ランキング（約1000位まで）から、その金額で買える売れ筋を選ぶ。
+# ランキングに無い金額帯（高い物など）だけ、ここに書いた言葉で検索して、レビューの多い順に選ぶ
 TIERS = [
-    # 300円未満は楽天に単品で買える物がほとんどないので、商品リンクは出さない（アプリはヒントだけ表示）
-    (300, 'ボールペン', ['ボールペン'], ['替芯', '替え芯', '互換', 'リフィル', '芯', '補充', 'インク', '印鑑']),
-    (500, 'ハンドタオル', ['ハンドタオル', 'タオルハンカチ'], []),
-    (1000, '石鹸', ['石鹸', 'せっけん', 'ソープ'], ['お試し', 'サンプル', 'トライアル', 'ホルダー', 'ディッシュ', 'ケース', 'ネット']),
-    (3000, 'モバイルバッテリー', ['モバイルバッテリー'], ['ファン', '扇風機', 'カイロ', 'ライト', '空調']),
-    (5000, 'ワイヤレスイヤホン', ['イヤホン'], ['ケース', 'イヤーピース']),
-    (10000, '財布', ['財布'], ['ケース', 'カバー']),
-    (30000, '腕時計', ['腕時計', 'ウォッチ', 'WATCH'], ['ベルト', 'バンド']),
-    (50000, 'ロボット掃除機', ['ロボット掃除機'], ['部品', 'フィルター', 'ブラシ']),
-    (100000, 'タブレット', ['iPad', 'タブレットPC', 'タブレット端末', 'Androidタブレット', 'Android タブレット', 'Galaxy Tab', 'Pad'], ['ケース', 'フィルム', 'カバー', 'ペン', 'ランドセル', 'スタンド']),
-    (300000, 'ノートパソコン', ['ノートパソコン', 'ノートPC', 'MacBook'], ['整備済']),
+    (300, 'ボールペン'), (500, 'ハンドタオル'), (1000, '石鹸'), (3000, 'モバイルバッテリー'),
+    (5000, 'ワイヤレスイヤホン'), (10000, '財布'), (30000, '腕時計'), (50000, 'ロボット掃除機'),
+    (100000, 'iPad'), (300000, 'ノートパソコン'),
 ]
-NG_ALL = ['中古', '訳あり', '訳有り', 'ジャンク', 'アウトレット']
+# 子どもも使うアプリなので、成人向けの物だけは外す
+NG_ALL = ['アダルト', '成人向け', '18禁', 'R18', 'R-18', '大人のおもちゃ', 'ラブグッズ']
+RANK_URL = 'https://openapi.rakuten.co.jp/ichibaranking/api/IchibaItem/Ranking/20220601'
+RANK_PAGES = 34  # 1ページ30件 × 34 ＝ 約1000位まで
 URL = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
 SITE = 'https://studio-akari.github.io'
-PICK = 3  # 1つの金額帯につき何個残すか
+PICK = 5  # 1つの金額帯につき何個残すか（アプリで日替わり表示）
 
-def search(keyword, lo, hi):
-    q = {
-        'applicationId': os.environ['RAKUTEN_APP_ID'],
-        'accessKey': os.environ['RAKUTEN_ACCESS_KEY'],
-        'affiliateId': os.environ['RAKUTEN_AFFILIATE_ID'],
-        'format': 'json', 'formatVersion': '2', 'keyword': keyword,
-        'minPrice': str(lo), 'maxPrice': str(hi), 'sort': '-reviewCount',
-        'availability': '1', 'imageFlag': '1', 'hits': '30',
-    }
-    req = urllib.request.Request(URL + '?' + urllib.parse.urlencode(q), headers={
+def get(url, q):
+    q = dict(q, applicationId=os.environ['RAKUTEN_APP_ID'], accessKey=os.environ['RAKUTEN_ACCESS_KEY'],
+             affiliateId=os.environ['RAKUTEN_AFFILIATE_ID'], format='json', formatVersion='2')
+    req = urllib.request.Request(url + '?' + urllib.parse.urlencode(q), headers={
         'Referer': SITE + '/kachimiru/', 'Origin': SITE, 'User-Agent': 'kachimiru-goods/1.0',
     })
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.load(r)
+
+def items_of(data):
+    return [it.get('Item', it) for it in data.get('Items', [])]
+
+def search(keyword, lo, hi):
+    return get(URL, {'keyword': keyword, 'minPrice': str(lo), 'maxPrice': str(hi), 'sort': '-reviewCount',
+                     'availability': '1', 'imageFlag': '1', 'hits': '30'})
 
 def clean(name):
     # 【〜】や「楽天1位」、クーポン・セールなどの宣伝文句を外して短くする
@@ -52,37 +49,57 @@ def img(it):
     u = u[0] if isinstance(u[0], str) else u[0].get('imageUrl', '')
     return u.split('?')[0] + '?_ex=256x256'
 
+def entry(it):
+    return {'name': clean(it['itemName']) or it['itemName'][:40], 'price': it['itemPrice'],
+            'url': it.get('affiliateUrl') or it['itemUrl'], 'img': img(it)}
+
+def ok(it):
+    return it.get('itemPrice') and it.get('mediumImageUrls') and not any(n in it['itemName'] for n in NG_ALL)
+
 def main():
     for k in ('RAKUTEN_APP_ID', 'RAKUTEN_ACCESS_KEY', 'RAKUTEN_AFFILIATE_ID'):
         v = os.environ.get(k, '')
         print(f'{k}: {"未登録" if not v else f"登録済み（{len(v)}文字）"}')
-    out, ok = {}, 0
-    for price, kw, must, ng in TIERS:
-        lo = max(1, int(price * 0.8))
+
+    # 1) 総合ランキングを集める（順位の高い順）
+    ranking = []
+    for page in range(1, RANK_PAGES + 1):
         try:
-            data = search(kw, lo, price)
+            ranking += items_of(get(RANK_URL, {'page': str(page)}))
         except urllib.error.HTTPError as e:
-            body = e.read().decode('utf-8', 'replace')[:300]
-            print(f'{price}円 {kw}: 失敗 {e.code} {body}', file=sys.stderr)
-            time.sleep(1.5); continue
+            print(f'ランキング {page}ページ目: 失敗 {e.code} {e.read().decode("utf-8", "replace")[:200]}', file=sys.stderr)
+            if page == 1: break
         except Exception as e:
-            print(f'{price}円 {kw}: 失敗 {e}', file=sys.stderr)
-            time.sleep(1.5); continue
-        items = []
-        for it in data.get('Items', []):
-            it = it.get('Item', it)
-            nm = it['itemName']
-            if not any(m in nm for m in must) or any(n in nm for n in ng + NG_ALL):
-                continue
-            if any(clean(nm) == x['name'] for x in items):  # 同じ商品の重複を外す
-                continue
-            items.append({'name': clean(nm) or nm[:40], 'price': it['itemPrice'], 'url': it.get('affiliateUrl') or it['itemUrl'], 'img': img(it)})
-            if len(items) >= PICK: break
-        out[str(price)] = items
-        ok += 1 if items else 0
-        print(f'{price}円 {kw}: {len(items)}件')
-        time.sleep(1.5)  # 1秒に1回まで
-    if ok == 0:
+            print(f'ランキング {page}ページ目: 失敗 {e}', file=sys.stderr)
+        time.sleep(1.2)
+    print(f'ランキング：{len(ranking)}件')
+
+    out, filled = {}, 0
+    for price, kw in TIERS:
+        lo = int(price * 0.8)
+        picks, seen = [], set()
+        for it in ranking:
+            if ok(it) and lo <= it['itemPrice'] <= price and it['itemName'] not in seen:
+                seen.add(it['itemName']); picks.append(entry(it))
+                if len(picks) >= PICK: break
+        src = 'ランキング'
+        # 2) ランキングに無ければ、言葉で検索（レビューの多い順）
+        if len(picks) < PICK:
+            try:
+                for it in items_of(search(kw, lo, price)):
+                    if ok(it) and it['itemName'] not in seen:
+                        seen.add(it['itemName']); picks.append(entry(it))
+                        if len(picks) >= PICK: break
+                src += '＋検索' if picks else ''
+            except urllib.error.HTTPError as e:
+                print(f'{price}円 検索: 失敗 {e.code} {e.read().decode("utf-8", "replace")[:200]}', file=sys.stderr)
+            except Exception as e:
+                print(f'{price}円 検索: 失敗 {e}', file=sys.stderr)
+            time.sleep(1.2)
+        out[str(price)] = picks
+        filled += 1 if picks else 0
+        print(f'{price}円: {len(picks)}件（{src}） ' + ' / '.join(x['name'][:20] for x in picks))
+    if filled == 0:
         sys.exit('1件も取れなかったので、前回の goods.json をそのまま残します')
     with open('goods.json', 'w', encoding='utf-8') as f:
         json.dump({'updated': int(time.time()), 'tiers': out}, f, ensure_ascii=False, separators=(',', ':'))
