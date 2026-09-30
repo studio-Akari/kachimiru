@@ -1,7 +1,7 @@
 # 楽天市場から「買える物」の商品を集めて goods.json を作る（GitHub Actions で毎日1回動く）
 # 必要な秘密の値（GitHub の Settings → Secrets に登録）：
 #   RAKUTEN_APP_ID / RAKUTEN_ACCESS_KEY / RAKUTEN_AFFILIATE_ID
-import json, os, sys, time, urllib.parse, urllib.request
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 
 # アプリの「買える物」の金額帯と、楽天で探すキーワード（金額は game.ts の GOODS と合わせる）
 TIERS = [
@@ -36,11 +36,18 @@ def img(it):
     return u.split('?')[0] + '?_ex=256x256'
 
 def main():
+    for k in ('RAKUTEN_APP_ID', 'RAKUTEN_ACCESS_KEY', 'RAKUTEN_AFFILIATE_ID'):
+        v = os.environ.get(k, '')
+        print(f'{k}: {"未登録" if not v else f"登録済み（{len(v)}文字）"}')
     out, ok = {}, 0
     for price, kw in TIERS:
         lo = max(1, int(price * 0.8))
         try:
             data = search(kw, lo, price)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8', 'replace')[:300]
+            print(f'{price}円 {kw}: 失敗 {e.code} {body}', file=sys.stderr)
+            time.sleep(1.5); continue
         except Exception as e:
             print(f'{price}円 {kw}: 失敗 {e}', file=sys.stderr)
             time.sleep(1.5); continue
