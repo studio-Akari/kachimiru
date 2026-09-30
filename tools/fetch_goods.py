@@ -10,7 +10,7 @@ TIERS = [
     (3000, 'モバイルバッテリー'), (5000, 'ワイヤレスイヤホン'), (10000, '財布'),
     (30000, '腕時計'), (50000, 'ロボット掃除機'), (100000, 'タブレット'), (300000, 'ノートパソコン'),
 ]
-URL = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20220601'
+URL = 'https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20260701'
 SITE = 'https://studio-akari.github.io'
 PICK = 3  # 1つの金額帯につき何個残すか
 
