@@ -46,11 +46,14 @@ def search(keyword, lo, hi):
 
 def clean(name):
     # 【〜】や「楽天1位」、クーポン・セールなどの宣伝文句を外して短くする
-    name = re.sub(r'[【\[［<＜《(（][^】\]］>＞》)）]{0,40}[】\]］>＞》)）]', ' ', name)
+    name = re.sub(r'[【\[［<＜《(（][^】\]］>＞》)）]{0,120}[】\]］>＞》)）]', ' ', name)
+    name = re.sub(r'^[^【】]*】', ' ', name)   # 長すぎて外しきれなかった【〜】の残り
+    name = re.sub(r'【[^】]*$', ' ', name)
     name = re.sub(r'[★☆◆◇■□●○♪！!&＆]+', ' ', name)
     name = re.sub(r'「[^」]{0,20}(楽天|位|受賞|最安|クーポン|OFF|オフ)[^」]{0,20}」', ' ', name)
     name = re.sub(r'\S*(クーポン|最安|セール|限定|OFF|オフ|ポイント|P\d+倍|\d[\d,]*円|楽天\d*位|\d+冠|ランキング|受賞)\S*', ' ', name)
-    return re.sub(r'\s+', ' ', name).strip(' /／・|｜')[:40]
+    name = re.sub(r'\s+', ' ', name).strip(' /／・|｜')[:40]
+    return re.sub(r'\s*[(（]\s*$', '', name).strip()
 
 def img(it):
     u = it.get('mediumImageUrls') or []
