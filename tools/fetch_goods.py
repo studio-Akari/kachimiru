@@ -29,7 +29,16 @@ def get(url, q):
         return json.load(r)
 
 def items_of(data):
-    return [it.get('Item', it) for it in data.get('Items', [])]
+    # ランキングは値段が文字で返ってくるので、数に直しておく
+    out = []
+    for it in data.get('Items', []):
+        it = dict(it.get('Item', it))
+        try:
+            it['itemPrice'] = int(str(it.get('itemPrice', '0')).replace(',', ''))
+        except ValueError:
+            it['itemPrice'] = 0
+        out.append(it)
+    return out
 
 def search(keyword, lo, hi):
     return get(URL, {'keyword': keyword, 'minPrice': str(lo), 'maxPrice': str(hi), 'sort': '-reviewCount',
