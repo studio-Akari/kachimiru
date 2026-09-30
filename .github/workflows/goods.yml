@@ -1,0 +1,28 @@
+name: 買える物を更新
+on:
+  schedule:
+    - cron: '17 18 * * *'   # 毎日 日本時間 3:17
+  workflow_dispatch:         # 手動でも動かせる
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 楽天から商品を取得
+        env:
+          RAKUTEN_APP_ID: ${{ secrets.RAKUTEN_APP_ID }}
+          RAKUTEN_ACCESS_KEY: ${{ secrets.RAKUTEN_ACCESS_KEY }}
+          RAKUTEN_AFFILIATE_ID: ${{ secrets.RAKUTEN_AFFILIATE_ID }}
+        run: python tools/fetch_goods.py
+      - name: 変わっていれば保存
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add goods.json
+          git diff --cached --quiet || git commit -m "買える物を更新"
+          git push
